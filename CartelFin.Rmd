@@ -1,0 +1,148 @@
+
+
+```{r, include=FALSE, warning=FALSE}
+library(readxl)
+CPI <- read_excel("C:/Users/wardc/Downloads/CPI_data_Feb_24_2022.xlsx")
+```
+
+```{r, include=FALSE, warning=FALSE}
+library(rsample)
+library(tidyverse)
+library(matlib)
+library(ggplot2)
+library(jtools)
+library(broom)
+library(gridExtra)
+library(dplyr)
+library(psych)
+library(regclass)
+library(lubridate)
+```
+
+## Plotting the price index for bread rolls
+
+```{r, warning=FALSE}
+CPI <- data.frame(CPI)
+
+dates <- seq(as.Date("1995-10-01"), as.Date("2018-09-01"), by = "month")
+dates <- data.frame(dates)
+
+
+df <- cbind.data.frame(dates , CPI$Bread..rolls.and.buns)
+colnames(df) <- c("dates", "BreadCPI")
+df$dates <- as.Date(df$dates)
+vlinedates <- c("2002-01-01", "2016-01-01")
+vlinedates <- as.Date(vlinedates)
+vlines_df <- data.frame(xintercept = vlinedates, color = "red")
+
+
+ggplot(df, aes(x=dates, y=BreadCPI)) +
+  geom_line() +
+  geom_vline(data = vlines_df, aes(xintercept = xintercept, color = color), show.legend = FALSE) +
+  scale_x_date(date_labels = "%b %Y") +
+  labs(x = "Date", y = "Value") + 
+  ggtitle("Bread Price CPI")
+
+
+```
+Looking at the plot their appears to be clear evidence that bread prices increased significantly during the period in question. There also appears to be evidence that prices started to fall once the alleged cartel was broken up. This is appearent as the rate of change of the CPI over the alleged period has significantly increased onto a new growth path.
+
+## Adding the price indices for other products
+
+```{r, warning=FALSE, fig.align='center'}
+CPIs <- CPI[,5:18]
+df <- cbind.data.frame(dates, CPIs)
+
+ggplot(df, aes(x=dates, y= df$Bread..rolls.and.buns)) +
+  geom_line() +
+  geom_line(aes(y = df$Food , color = "Food")) +
+  geom_line(aes(y = df$Food.purchased.from.restaurants.5 , color = "Restaurant")) +
+  geom_line(aes(y = df$Food.purchased.from.stores, color = "Store" )) +
+  geom_line(aes(y = df$Meat, color = "Meat" )) +
+  geom_line(aes(y = df$Fish..seafood.and.other.marine.products, color = "Seafood" )) +
+  geom_line(aes(y = df$Dairy.products.and.eggs , color = "Dairy/eggs")) +
+  geom_line(aes(y = df$Fruit..fruit.preparations.and.nuts, color = "Fruit/nut" )) +
+  geom_line(aes(y = df$Vegetables.and.vegetable.preparations, color = "Vegetable" )) +
+  geom_line(aes(y = df$Other.food.products.and.non.alcoholic.beverages, color = "Other/non-alcohol" )) +
+  geom_line(aes(y = df$Confectionery , color = "Confec")) +
+  geom_line(aes(y = df$Cereal.products..excluding.baby.food., color = "Cereal" )) +
+  geom_line(aes(y = df$Cookies.and.crackers, color = "Cookie/crackers" )) +
+  geom_line(aes(y = df$Other.bakery.products, color = "Bakery" )) +
+  geom_vline(data = vlines_df, aes(xintercept = xintercept), show.legend = FALSE) +
+  scale_x_date(date_labels = "%b %Y") +
+  labs(x = "Date", y = "Value", subtitle = "Bread Price CPI compared to other all other product catagories") + 
+  ggtitle("Bread Price CPI")
+
+```
+The CPI for other items are plotted in various colors. While we can see that price inflation effects all items in the CPI basket the bread price inflation outpaces the other items in the basket. This is especially true during the period where the alleged cartel was taking place. we can see in the area between the black lines that Bread Price inflation increases significantly compared to other items, and we see that after February 2016 the gap starts to close as the bread prices start to fall toward the rest of the items in the basket. 
+
+## Setting up model to evaluate the formation of the cartel
+
+In order to evaluate the impact of the cartel we need to compare how prices changed in the effected industry relative to prices in similar industries. Since bread has different inputs than other items in the bin we should expect that a good comparison for bread price movements would be a product with similar characteristics. In order to identify which of the other CPIs are most similar to the Bread and Bun CPI check to see which other CPIs are most correlated with the Bread CPI.
+
+```{r, echo=FALSE}
+a <- as.data.frame(cor(CPIs))
+b <- as.data.frame(a$Bread..rolls.and.buns)
+row.names(b) <- row.names(a)
+print(b)
+```
+
+We can see that bread prices are highly correlated with the CPI for other bakery products, this is good since it matches our intuition that products with similar input costs should see similar movements in price. Controlling for the CPI of other bakery products should let us control for other variables that would affect price allowing us to infer that the difference in price is due to the cartel. We see similar trends in cereal prices, which also use grains as an input.
+
+
+```{r}
+# create treatment dummy
+selected_cpi<-data.frame(bread=CPI$Bread..rolls.and.buns,Cereal=CPI$Cereal.products..excluding.baby.food.,Baked=CPI$Other.bakery.products,food=CPI$Food,Date=dates$dates)
+
+selected_cpi$Cartel<-ifelse(selected_cpi$Date>as.Date("2002-01-01") & selected_cpi$Date<as.Date("2016-01-01"),1,0)
+selected_cpi$Time_var<-factor(seq(1:nrow(selected_cpi)))
+
+selected_cpi<-reshape2::melt(selected_cpi, id=c("Date","Time_var","Cartel"))
+selected_cpi$Group<-ifelse(selected_cpi$variable=="bread",1,0)
+
+selected_cpi$CartelActiveInMarket <- selected_cpi$Cartel * selected_cpi$Group
+
+names(selected_cpi)<-c("Date","Time_var","Cartel","Produce","CPI","Group","Active_Cartel")
+
+LM.Formation <- lm(CPI ~ Active_Cartel +factor(Produce) + Time_var, data = selected_cpi)
+summary(LM.Formation)
+
+```
+From the first Difference and Difference Regression we can see that bread prices increased at a higher rate than the other related sectors during the relevant period. This is most apparent by the positive coefficient of "Active_Cartel", which captures the increase in CPI for the Bread group during the alleged years of activity. The coefficient on our interaction term is positive, statistically and economically significant.
+
+
+## Setting up model to evaluate the collapse of the cartel
+```{r}
+selected_cpi$collapse<-ifelse(selected_cpi$Date>=as.Date("2016-01-01"),1,0)
+selected_cpi<-subset(selected_cpi, Date>as.Date("2012-01-01"))
+selected_cpi$CartelCollapse <- selected_cpi$collapse * selected_cpi$Group
+selected_cpi$Produce<-factor(selected_cpi$Produce)
+selected_cpi$Produce<-relevel(selected_cpi$Produce,ref="bread")
+
+LM.collapse <- lm(CPI ~ Active_Cartel + Produce + Time_var, data = selected_cpi)
+
+summary(LM.collapse)
+
+```
+
+
+After the collapse of the cartel, the decrease in bread prices relative to other items in the basket is captured by the interaction term ActiveCartel which takes a value of 1 when the cartel was active in the bread market. We get a positive coefficient for Activecartel which tells us that prices where higher during the period when the cartel was active than they were after.Note that we had to trim the date range included in our regression as if we included dates prior to 2012, we would violate the common trend assumption necessary for DiD to hold true. When the cartel was active it took a few years for bread producers to reach a threshold where they could no longer profitably continue increase prices relative to inflation. When we subset the data and look only at the years after the cartel reached this point we see a similar trend in price levels with other items in our basket. This allows us to be able to infer that the reduction in prices once the active cartel period was over was indeed due to the collapse of the cartel.
+
+
+
+
+## What does this say about the Cartel?
+ 
+
+In comparing our results from the formation and collapse models we see that the estimated impact of the cartel collapse was less significant in magnitude than the impact we estimated for the cartel formation. This could be partially due to the time period we have data on, and the time it would take for a cartel to unwind. The collapse period may understate the impact because firms may want to be cautious about drastically decreasing their prices during and after an investigation period where regulatory authorities are assessing the impacts and evidence of the existence of a cartel. 
+
+
+
+
+## Why does the competition bureau's immunity policy work?
+
+The immunity policy works by increasing the incentive to deviate for cartels. If we think about the Nash equilibrium that allows a cartel to cooperate over time the immunity policy works by increasing the payoff for a firm if it chooses to deviate. This will make it harder for cartels to remain active as, prior to the immunity clause, the discount factor necessary for a grim-trigger strategy to avoid deviation would have been much smaller. We can suspect that this policy works well as it holds true in the theory. In practice, it is much more complicated to determine the effectiveness of policy, however it has worked in this case. 
+
+
+
+
